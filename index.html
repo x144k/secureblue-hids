@@ -141,7 +141,7 @@
 
 <h2>Why this belongs in SecureBlue</h2>
 
-<p>I built this because I noticed SecureBlue stops attacks well but does not tell you when one gets through.</p>
+<p>I built this solution because I noticed SecureBlue stops attacks well, but doesn't notify you if and when one gets through.</p>
 
 <h3>What SecureBlue already does well</h3>
 
@@ -152,7 +152,7 @@
     <li>Minimal attack surface through decluttering</li>
 </ul>
 
-<h3>What it lacks; & why this stack matters</h3>
+<h3>What it lacks, and why this stack matters</h3>
 
 <table>
     <tr>
@@ -201,9 +201,9 @@
 
 <h3>Why this matters</h3>
 
-<p>SecureBlue hardens well, but hardening without detection leaves you blind to successful bypasses. If someone edits <code>/etc/passwd</code> or drops a SUID binary in <code>/var/tmp</code>, you need to know. This stack is not a replacement for SecureBlue's prevention; it is the other half of defense in depth.</p>
+<p>SecureBlue hardens well, but hardening without detection ultimately leaves you blind to successful bypasses. If someone edits <code>/etc/passwd</code> or drops a SUID binary in <code>/var/tmp</code>, you need to know. Important to note: This stack is not a replacement for SecureBlue's prevention; it is the other half of defense in depth.</p>
 
-<p>Some will call it scope creep. Fair. But I would rather have logs I never read than miss a compromise I could have caught. The tools are cheap; the baseline is zero; the setup is one afternoon. If you install it and ignore the daily review, that is on you. The architecture is sound.</p>
+<p>Some will call it scope creep, to which I would say, fair enough. But I would rather have logs I never read than miss a compromise I could have caught. The tools are cheap, the baseline is zero and the setup will take you just one afternoon. If you install it just to ignore the daily review, that's on you. The architecture is sound.</p>
 
 <h2>Phase 0: Build Static AIDE</h2>
 
@@ -964,7 +964,7 @@ LD_PRELOAD=/usr/lib64/libhardened_malloc.so /usr/local/bin/aide --version
 
 <h3>Closing thoughts</h3>
 
-<p>If you've made it this far, you know that building a detection layer on an immutable system can be awkward. You'll hit friction that standard guides simply won't mention. The issues above are what stopped me personally. If you find another, file an issue it and I'll add it to the list. Overall, I would offer that this stack is worth the afternoon it takes to set up. Best of luck.</p>
+<p>If you've made it this far, you now know that building a detection layer on an immutable system can be awkward. You'll hit friction that standard guides simply won't mention. The issues above are what stopped me personally. If you find another, feel free to file an issue and I'll likely add it to the list. Overall, I would offer that this stack is worth the afternoon it takes to set up. Best of luck.</p>
 
 
 </body>
