@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Host Intrusion Detection & Integrity Monitoring Stack for SecureBlue OS</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --fg: #c9d1d9;
+            --accent: #58a6ff;
+            --muted: #8b949e;
+            --border: #30363d;
+            --code-bg: #161b22;
+            --warn: #f85149;
+            --ok: #3fb950;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            overflow-x: hidden;
+        }
+        p, li, td, th, .note, .critical {
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+        h1 { color: var(--fg); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+        h2 { color: var(--accent); margin-top: 2.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+        h3 { color: var(--fg); margin-top: 2rem; }
+        h4 { color: var(--muted); margin-top: 1.5rem; }
+        code {
+            background: var(--code-bg);
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.9em;
+            white-space: normal;
+            word-break: break-word;
+        }
+        pre {
+            background: var(--code-bg);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        pre code { background: none; padding: 0; white-space: pre; word-break: normal; }
+        .critical {
+            background: rgba(248, 81, 73, 0.1);
+            border-left: 4px solid var(--warn);
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0 6px 6px 0;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+        .note {
+            background: rgba(88, 166, 255, 0.1);
+            border-left: 4px solid var(--accent);
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0 6px 6px 0;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            table-layout: fixed;
+        }
+        td, th {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-word;
+        }
+        th, td {
+            border: 1px solid var(--border);
+            padding: 0.6rem;
+            text-align: left;
+        }
+        th { background: var(--code-bg); color: var(--accent); }
+        tr:nth-child(even) { background: rgba(22, 27, 34, 0.5); }
+        ul { padding-left: 1.5rem; }
+        li { margin: 0.4rem 0; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .phase { margin-top: 2rem; }
+        .ok { color: var(--ok); }
+        .warn { color: var(--warn); }
+    </style>
+<base target="_blank">
+<base target="_blank">
+<base target="_blank">
+</head>
+<body>
+
+<h1>Host Intrusion Detection & Integrity Monitoring Stack for SecureBlue OS</h1>
+
+<p>This is a <strong>host-based intrusion detection & integrity monitoring stack</strong> designed to detect unauthorized system modifications through two complementary layers of defense.</p>
+
+<h2>What it does</h2>
+
+<p>The stack consists of five components working together:</p>
+
+<ul>
+    <li><strong>Audit rules:</strong> Real-time kernel monitoring of system configuration changes. They watch identity stores, polkit configuration, linker preloads, SSH settings, firewall rules, systemd units & network configuration. They catch the exact moment a file is modified via syscall interception.</li>
+    <li><strong>AIDE:</strong> Daily cryptographic scan of the entire filesystem integrity. It scans the entire filesystem daily, comparing current files against a trusted cryptographic baseline. It detects changes regardless of whether auditd was running when they occurred.</li>
+    <li><strong>SUID scanner:</strong> Detects unauthorized privileged binaries in mutable paths. It baselines all setuid/setgid binaries found in mutable paths (<code>/etc</code>, <code>/var</code>, <code>/home</code>, <code>/usr/local</code>). On rpm-ostree systems, the baseline is typically zero because all standard SUID binaries reside in the immutable <code>/usr</code> tree; any new appearance is suspicious.</li>
+    <li><strong>Canary files:</strong> Decoy files placed in monitored locations that trigger alerts on unauthorized access. Any read, write, or execute access generates an audit event, acting as a tripwire for reconnaissance.</li>
+    <li><strong>Daily review:</strong> Automated journal summary of all security events. It runs automatically each day, querying audit logs, AIDE status & SUID drift & outputs a concise summary to the system journal.</li>
+</ul>
+
+<h2>Why both AIDE & auditd are required</h2>
+
+<p>Both tools are required because they cover different threat models:</p>
+
+<ul>
+    <li><strong>Real-time detection:</strong> auditd intercepts syscalls as they happen, alerting instantly when a watched file is modified. AIDE only reports changes during its scheduled scan.</li>
+    <li><strong>Full filesystem coverage:</strong> auditd only monitors paths you explicitly configure. AIDE scans the entire filesystem, catching tampering in locations you might have forgotten to watch.</li>
+    <li><strong>Offline change detection:</strong> If auditd is stopped or the system is suspended during a change, auditd misses it entirely. AIDE compares against a stored baseline & reports any deviation, regardless of when it happened.</li>
+    <li><strong>Overlayfs compatibility:</strong> On rpm-ostree systems, <code>/etc</code> & <code>/usr</code> are overlay filesystems. auditd's inode-based watches can fail to trigger on overlay layers. AIDE hashes the actual file content, bypassing filesystem abstraction entirely.</li>
+    <li><strong>Cryptographic proof:</strong> auditd logs that an event occurred, but provides no proof of what the file looked like before or after. AIDE stores SHA-256 & SHA-512 fingerprints, providing tamper-evident evidence of file state.</li>
+</ul>
+
+<p>Together, they ensure no persistent tampering goes unnoticed, whether through a live syscall or a quiet file swap while the system sleeps.</p>
+
+<h2>Why this belongs in SecureBlue</h2>
+
+<p>I built this because I noticed SecureBlue stops attacks well but does not tell you when one gets through.</p>
+
+<h3>What SecureBlue already does well</h3>
+
+<ul>
+    <li>Immutable base system (rpm-ostree)</li>
+    <li>Hardened kernel, malloc & compiler flags</li>
+    <li>Usbguard, MAC policies & network hardening</li>
+    <li>Minimal attack surface through decluttering</li>
+</ul>
+
+<h3>What it lacks; & why this stack matters</h3>
+
+<table>
+    <tr>
+        <th>SecureBlue's approach</th>
+        <th>The gap</th>
+        <th>What this stack adds</th>
+    </tr>
+    <tr>
+        <td>Preventive hardening</td>
+        <td>No detection of <em>successful</em> bypasses</td>
+        <td>Post-exploitation visibility</td>
+    </tr>
+    <tr>
+        <td>Immutable <code>/usr</code></td>
+        <td>Mutable <code>/etc</code>, <code>/var</code>, <code>/home</code> remain exposed</td>
+        <td>Integrity monitoring for mutable paths</td>
+    </tr>
+    <tr>
+        <td>Policy enforcement</td>
+        <td>No audit trail of policy <em>violations</em></td>
+        <td>Tamper-evident logging</td>
+    </tr>
+    <tr>
+        <td>Boot-time security</td>
+        <td>No runtime change detection</td>
+        <td>Continuous monitoring between boots</td>
+    </tr>
+</table>
+
+<h3>Specific scenarios this catches that SecureBlue alone misses</h3>
+
+<ul>
+    <li>An attacker with physical access modifies <code>/etc/passwd</code> to add a backdoor account: <strong>auditd catches the syscall in real-time, AIDE catches it on next scan</strong></li>
+    <li>Malware drops a SUID binary in <code>/home</code> or <code>/var/tmp</code>: <strong>SUID scanner alerts on next run</strong></li>
+    <li>Someone edits polkit rules to weaken <code>run0</code>: <strong>audit rule fires instantly</strong></li>
+    <li>A compromised process reads canary files during reconnaissance: <strong>audit log shows the exact PID & timestamp</strong></li>
+</ul>
+
+<h3>Why it belongs in SecureBlue specifically</h3>
+
+<ul>
+    <li>rpm-ostree's overlayfs makes traditional auditd unreliable on <code>/etc</code> & <code>/usr</code>: <strong>AIDE's content hashing bypasses this entirely</strong></li>
+    <li>Statically linked AIDE avoids hardened_malloc conflicts: <strong>no security trade-offs, no bypasses needed</strong></li>
+    <li>The SUID baseline being ~0 on rpm-ostree is a <strong>unique advantage</strong>; any deviation is immediately suspicious, unlike traditional distros where dozens of SUID binaries are normal</li>
+</ul>
+
+<h3>Why this matters</h3>
+
+<p>SecureBlue hardens well, but hardening without detection leaves you blind to successful bypasses. If someone edits <code>/etc/passwd</code> or drops a SUID binary in <code>/var/tmp</code>, you need to know. This stack is not a replacement for SecureBlue's prevention; it is the other half of defense in depth.</p>
+
+<p>Some will call it scope creep. Fair. But I would rather have logs I never read than miss a compromise I could have caught. The tools are cheap; the baseline is zero; the setup is one afternoon. If you install it and ignore the daily review, that is on you. The architecture is sound.</p>
+
+<h2>Phase 0: Build Static AIDE</h2>
+
+<div class="critical">
+    <strong>CRITICAL:</strong> SecureBlue's <code>hardened_malloc</code> breaks dynamically linked AIDE. The standard Fedora package segfaults during database operations. Building a statically linked AIDE eliminates the conflict: the binary bundles its own allocator & ignores the system's <code>LD_PRELOAD</code> & malloc hooks. This preserves hardened_malloc for all other processes.
+</div>
+
+<p><strong>Build complexity:</strong> Fedora 44 does not ship static library archives (<code>.a</code> files) for nettle, pcre2, or zlib in standard repositories. The build must compile these dependencies from source, then statically link AIDE against them. This requires only <code>bison</code> & <code>flex</code> from Fedora; all other dependencies are built from upstream source.</p>
+
+<p><strong>Nettle 4.0 compatibility:</strong> AIDE 0.19.3 was written for nettle 3.x. Nettle 4.0 changed the <code>nettle_hash_digest_func</code> API from 3 arguments to 2. This guide applies a one-line patch to <code>src/md.c</code> before building. The patch removes the obsolete length parameter from the digest call. If you prefer not to patch AIDE, use nettle 3.10.2 (the last 3.x release) instead; the fallback URL is provided.</p>
+
+<details>
+    <summary>Click to expand: Check for latest releases before building</summary>
+    <pre><code># Check latest versions via GitHub API & GNU FTP
+# Run these before Phase 0 to verify the URLs below are current
+
+# Latest zlib
+/usr/bin/curl -s https://api.github.com/repos/madler/zlib/releases/latest | /usr/bin/grep '"tag_name":'
+
+# Latest pcre2
+/usr/bin/curl -s https://api.github.com/repos/PCRE2Project/pcre2/releases/latest | /usr/bin/grep '"tag_name":'
+
+# Latest nettle (manual check; no API)
+/usr/bin/curl -s https://ftp.gnu.org/gnu/nettle/ | /usr/bin/grep -o 'nettle-[0-9.]*\.tar\.gz' | /usr/bin/sort -V | /usr/bin/tail -n 1
+
+# Latest AIDE
+/usr/bin/curl -s https://api.github.com/repos/aide/aide/releases/latest | /usr/bin/grep '"tag_name":'</code></pre>
+</details>
+
+<h3>1. Install build tools</h3>
+
+<pre><code># Layer only bison & flex; all other dependencies built from source
+# Reboot required before tools are available in active deployment
+rpm-ostree install bison flex
+systemctl reboot</code></pre>
+
+<h3>2. Build static dependencies & AIDE</h3>
+
+<p>Download, compile & install static versions of zlib, pcre2 & nettle to a local prefix. Then build AIDE linked against them.</p>
+
+<pre><code># Set build environment
+BUILD_PREFIX="/var/home/$(whoami)/aide-static-deps"
+/usr/bin/mkdir -p "${BUILD_PREFIX}"
+export LD_PRELOAD=
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+# Build static zlib (latest: 1.3.2)
+cd /var/home/$(whoami)
+/usr/bin/curl -LO https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz
+/usr/bin/tar xzf zlib-1.3.2.tar.gz
+cd zlib-1.3.2
+./configure --prefix="${BUILD_PREFIX}" --static
+/usr/bin/make -j$(/usr/bin/nproc)
+/usr/bin/make install
+
+# Build static pcre2 (latest: 10.47)
+cd /var/home/$(whoami)
+/usr/bin/curl -LO https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.47/pcre2-10.47.tar.gz
+/usr/bin/tar xzf pcre2-10.47.tar.gz
+cd pcre2-10.47
+./configure --prefix="${BUILD_PREFIX}" --disable-shared --enable-static --enable-utf --enable-unicode-properties
+/usr/bin/make -j$(/usr/bin/nproc)
+/usr/bin/make install
+
+# Build static nettle (latest: 4.0)
+# Fallback URL if you prefer not to patch AIDE: https://ftp.gnu.org/gnu/nettle/nettle-3.10.2.tar.gz
+cd /var/home/$(whoami)
+/usr/bin/curl -LO https://ftp.gnu.org/gnu/nettle/nettle-4.0.tar.gz
+/usr/bin/tar xzf nettle-4.0.tar.gz
+cd nettle-4.0
+./configure --prefix="${BUILD_PREFIX}" --disable-shared --enable-static
+/usr/bin/make -j$(/usr/bin/nproc)
+/usr/bin/make install
+
+# Build static AIDE linked against custom deps (latest: 0.19.3)
+# Apply nettle 4.0 API patch before compiling
+cd /var/home/$(whoami)
+/usr/bin/mkdir -p aide-build-0.19.3
+cd aide-build-0.19.3
+/usr/bin/curl -LO https://github.com/aide/aide/releases/download/v0.19.3/aide-0.19.3.tar.gz
+/usr/bin/tar xzf aide-0.19.3.tar.gz
+cd aide-0.19.3
+
+# Patch src/md.c for nettle 4.0 compatibility
+# Nettle 4.0 changed digest() from 3 args to 2; remove the obsolete length parameter
+/usr/bin/sed -i 's/nettle_functions\[i\].digest(&md->ctx\[i\].md5, hashsums\[i\].length, hs->hashsums\[i\]);/nettle_functions[i].digest(\&md->ctx[i].md5, hs->hashsums[i]);/' src/md.c
+
+export PKG_CONFIG_PATH="${BUILD_PREFIX}/lib/pkgconfig:${BUILD_PREFIX}/lib64/pkgconfig"
+export CFLAGS="-I${BUILD_PREFIX}/include"
+export LDFLAGS="-static -L${BUILD_PREFIX}/lib -L${BUILD_PREFIX}/lib64"
+./configure --prefix=/usr/local --disable-shared --enable-static
+/usr/bin/make -j$(/usr/bin/nproc)
+run0 /usr/bin/bash -c "export LD_PRELOAD=; export PATH=/usr/sbin:/usr/bin:/sbin:/bin; cd /var/home/$(whoami)/aide-build-0.19.3/aide-0.19.3; /usr/bin/make install"
+
+# Verify static link & hardened_malloc immunity
+/usr/bin/ldd /usr/local/bin/aide
+LD_PRELOAD=/usr/lib64/libhardened_malloc.so /usr/local/bin/aide --version</code></pre>
+
+<h3>3. Create AIDE configuration</h3>
+
+<pre><code># AIDE requires a configuration file. Create minimal config for SecureBlue.
+# Note: acl, selinux, xattrs omitted because AIDE was built without those libraries.
+run0 /usr/bin/tee /usr/local/etc/aide.conf << 'EOF'
+database_in=file:/var/lib/aide/aide.db.gz
+database_out=file:/var/lib/aide/aide.db.new.gz
+gzip_dbout=yes
+
+/boot   p+i+n+u+g+s+b+m+sha256
+/etc    p+i+n+u+g+s+b+m+sha256
+/bin    p+i+n+u+g+s+b+m+sha256
+/sbin   p+i+n+u+g+s+b+m+sha256
+/lib    p+i+n+u+g+s+b+m+sha256
+/lib64  p+i+n+u+g+s+b+m+sha256
+/opt    p+i+n+u+g+s+b+m+sha256
+/usr    p+i+n+u+g+s+b+m+sha256
+/var    p+i+n+u+g+s+b+m+sha256
+
+!/var/log/.*
+!/var/run/.*
+!/var/tmp/.*
+!/tmp/.*
+!/proc/.*
+!/sys/.*
+!/dev/.*
+!/run/.*
+EOF
+
+# Initialize database
+run0 /usr/bin/mkdir -p /var/lib/aide
+run0 /usr/local/bin/aide --init
+run0 /usr/bin/mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+
+# Verify check works
+run0 /usr/local/bin/aide --check</code></pre>
+
+<div class="note">
+    <strong>Maintenance note:</strong> Static AIDE is not updated via rpm-ostree. Monitor <a href="https://github.com/aide/aide/releases">https://github.com/aide/aide/releases</a> for security updates. Rebuild using these same steps when new versions are released. v0.19.2 patched CVE-2025-54389 & CVE-2025-54409; always run the latest release.
+</div>
+
+<h3>Why static linking is acceptable here</h3>
+
+<p>Static linking AIDE does not weaken your system. It isolates a compatibility issue.</p>
+
+<p><strong>The problem:</strong> hardened_malloc breaks dynamically linked AIDE during large database operations. The segfault is a compatibility bug, not an AIDE vulnerability.</p>
+
+<p><strong>The fix:</strong> The static binary bundles its own allocator and ignores <code>LD_PRELOAD</code>. hardened_malloc never loads into AIDE's address space. Every other process keeps hardened_malloc.</p>
+
+<p><strong>The risk:</strong> AIDE uses a standard allocator. But it is non-network-facing, short-lived, and only reads local files that have already passed through kernel and filesystem checks. The alternative is a non-functional tool. I will take a working integrity scanner with an isolated allocator over a broken one every time. The trade-off is documented.</p>
+
+<h2>Phase 1: Install Packages</h2>
+
+<div class="critical">
+    <strong>CRITICAL:</strong> You must reboot after this step. rpm-ostree installs packages into a new deployment that only becomes active after reboot. Attempting Phase 2 before rebooting will result in "command not found" errors for auditd.
+</div>
+
+<p><strong>Pre-flight check:</strong> Verify you're on a standard SecureBlue deployment with mutable <code>/var</code> & <code>/etc</code>. If you have custom overlays or read-only <code>/var</code>, AIDE database storage & audit log persistence will fail.</p>
+
+<p>The following packages provide the core monitoring infrastructure. AIDE was built in Phase 0; only audit tools & dependencies are layered here.</p>
+
+<pre><code># Install audit framework & utilities
+rpm-ostree install audit jq
+
+# REBOOT NOW. Do not proceed until the system has restarted.
+# Failure to reboot means auditctl & augenrules will not be available.
+systemctl reboot</code></pre>
+
+<h2>Phase 2: Audit Rules</h2>
+
+<div class="critical">
+    <strong>CRITICAL:</strong> SecureBlue's <code>run0</code> wrapper strips <code>/usr/sbin</code> & <code>/sbin</code> from PATH for security. All audit tools live in <code>/usr/sbin</code>. Therefore, every audit command in this phase must use absolute paths. Copy-pasting standard commands will fail with "command not found." This guide uses absolute paths exclusively; do not abbreviate.
+</div>
+
+<h3>1. Create base monitoring rules</h3>
+
+<div class="note">
+    <strong>Note:</strong> The <code>$(whoami)</code> command expands to your actual username at file creation time because the heredoc uses double quotes. Verify the output matches your username.
+</div>
+
+<pre><code># Create audit rules defining watched paths & their monitoring keys
+# -p wa: watch for writes & attribute changes
+# -k &lt;key&gt;: tag events for ausearch filtering
+# Double quotes allow $USER to expand; run0 preserves your original username
+run0 /usr/bin/tee /etc/audit/rules.d/99-secureblue-custom.rules << EOF
+# Identity & authentication stores
+-w /etc/passwd -p wa -k identity_changes
+-w /etc/shadow -p wa -k identity_changes
+-w /etc/group -p wa -k identity_changes
+-w /etc/gshadow -p wa -k identity_changes
+
+# Dynamic linker hijacking
+-w /etc/ld.so.preload -p wa -k linker_hijack
+-w /etc/ld.so.conf.d/ -p wa -k linker_hijack
+
+# Privilege model (polkit/run0)
+-w /etc/polkit-1/rules.d/ -p wa -k privilege_escalation
+-w /etc/polkit-1/localauthority/ -p wa -k privilege_escalation
+
+# SSH config
+-w /etc/ssh/sshd_config -p wa -k ssh_config
+-w /etc/ssh/ssh_config.d/ -p wa -k ssh_config
+
+# Systemd overrides & persistent units
+-w /etc/systemd/system/ -p wa -k systemd_changes
+-w /etc/systemd/user/ -p wa -k systemd_changes
+
+# Firewall & network
+-w /etc/firewalld/ -p wa -k firewall_changes
+-w /etc/NetworkManager/system-connections/ -p wa -k network_changes
+-w /etc/hosts -p wa -k dns_hijack
+-w /etc/resolv.conf -p wa -k dns_hijack
+
+# Time sync
+-w /etc/chrony.conf -p wa -k time_sync
+
+# Kernel module overrides
+-w /etc/modprobe.d/ -p wa -k module_changes
+
+# Audit config self-protection
+-w /etc/audit/rules.d/ -p wa -k audit_config
+
+# Canary files (use /var, not /etc, for reliable triggering on overlayfs)
+-w /var/.system_canary -p rwxa -k canary_trip
+-w /home/$USER/.user_canary -p rwxa -k canary_trip
+EOF</code></pre>
+
+<div class="note">
+    <strong>Path alignment check:</strong> Verify that the user canary path matches the audit rule created in Step 1. The rule watches <code>/home/$USER/.user_canary</code>. Creating the file at a different path means the tripwire watches a nonexistent location.
+</div>
+
+<h3>2. Create system canary</h3>
+
+<pre><code># System-wide canary in /var (not /etc, because /var triggers more reliably on overlayfs)
+run0 /usr/bin/tee /var/.system_canary << 'EOF'
+# System canary - DO NOT DELETE
+# Security monitoring decoy
+EOF
+run0 /usr/bin/chmod 644 /var/.system_canary</code></pre>
+
+<h3>3. Create user canary</h3>
+
+<div class="note">
+    <strong>Path check:</strong> Verify the audit rule points to your home directory before creating the canary file: <code>run0 /usr/bin/grep canary /etc/audit/rules.d/99-secureblue-custom.rules</code>
+</div>
+
+<pre><code># User canary in your actual home directory
+# Verify the path matches Step 1 audit rule: run0 /usr/bin/grep canary /etc/audit/rules.d/99-secureblue-custom.rules
+/usr/bin/tee ~/.user_canary << 'EOF'
+# User canary - DO NOT DELETE
+# Security monitoring decoy
+EOF
+/usr/bin/chmod 644 ~/.user_canary</code></pre>
+
+<h3>4. Create privilege escalation rules</h3>
+
+<div class="note">
+    <strong>Detection gap:</strong> Base rules watch configuration files but miss runtime escalation vectors: execution of elevation binaries, account manipulation syscalls, kernel module loading, eBPF attachment & SUID bit changes. These rules close that gap. The SUID rule excludes unset auid to avoid false positives from system daemons.
+</div>
+
+<pre><code># Create dedicated privilege escalation rules file
+# These load before 99-secureblue-custom.rules via numeric ordering (98-privesc.rules)
+run0 /usr/bin/tee /etc/audit/rules.d/98-privesc.rules << 'EOF'
+# Privilege Escalation Detection: SecureBlue
+# Elevation binaries
+-w /usr/bin/run0 -p x -k privesc_run0
+-w /usr/bin/pkexec -p x -k privesc_pkexec
+-w /usr/bin/passwd -p x -k privesc_passwd
+
+# Account management
+-w /usr/sbin/useradd -p x -k privesc_account
+-w /usr/sbin/usermod -p x -k privesc_account
+-w /usr/sbin/userdel -p x -k privesc_account
+-w /usr/sbin/groupadd -p x -k privesc_account
+-w /usr/sbin/groupmod -p x -k privesc_account
+-w /usr/sbin/groupdel -p x -k privesc_account
+
+# Authentication configuration
+-w /etc/pam.d/ -p wa -k privesc_pam
+-w /etc/security/ -p wa -k privesc_security
+
+# SUID/SGID bit manipulation by non-system users
+# auid!=-1 excludes system daemons (systemd-resolve, etc.) that run with unset auid
+-a always,exit -F arch=b64 -S chmod -S fchmod -S fchmodat -F auid>=1000 -F auid!=-1 -k privesc_suid
+
+# Kernel module & eBPF loading
+-a always,exit -F arch=b64 -S init_module -S finit_module -S delete_module -k privesc_kmod
+-a always,exit -F arch=b64 -S bpf -k privesc_bpf
+
+# Capability manipulation
+-w /usr/sbin/setcap -p x -k privesc_caps
+
+# Persistence vectors
+-w /etc/cron.d/ -p wa -k privesc_persist
+-w /etc/cron.daily/ -p wa -k privesc_persist
+-w /etc/cron.hourly/ -p wa -k privesc_persist
+-w /etc/cron.weekly/ -p wa -k privesc_persist
+-w /etc/cron.monthly/ -p wa -k privesc_persist
+-w /var/spool/cron/ -p wa -k privesc_persist
+-w /etc/at.allow -p wa -k privesc_persist
+-w /etc/at.deny -p wa -k privesc_persist
+EOF</code></pre>
+
+<h3>5. Compile & load rules</h3>
+
+<div class="note">
+    <strong>PATH issue:</strong> <code>augenrules</code> lives in <code>/usr/sbin</code>. Because <code>run0</code> strips this from PATH, you must call it with an absolute path. If this fails with "command not found", you forgot to reboot after Phase 1.
+</div>
+
+<pre><code># Compile rules from /etc/audit/rules.d/ into the active kernel configuration
+# Absolute path required: run0 does not resolve /usr/sbin
+run0 /usr/sbin/augenrules --load</code></pre>
+
+<h3>6. Verify rules loaded</h3>
+
+<div class="note">
+    <strong>Verification step:</strong> If this returns 0, the rules didn't load. Common causes: (1) you didn't reboot after Phase 1, (2) auditd service is not running, (3) SELinux is blocking auditctl execution. Check <code>systemctl status auditd</code> & <code>/usr/sbin/ausearch -m AVC -ts recent</code> for denials.
+</div>
+
+<pre><code># Count active rules. Expected output: ~44
+# If 0: auditd is not running or rules failed to compile
+# Absolute path required for both auditctl & wc
+run0 /usr/sbin/auditctl -l | /usr/bin/wc -l</code></pre>
+
+<h3>7. Increase backlog limit</h3>
+
+<div class="note">
+    <strong>Context:</strong> The default audit backlog of 64 events is too small for interactive systems. If the backlog overflows, auditd switches to failure mode (configurable, but often silent loss). 8192 is conservative; monitor <code>/usr/sbin/ausearch -m AUDIT_BACKLOG</code> after deployment to tune.
+</div>
+
+<pre><code># Increase kernel audit buffer to prevent event loss under load
+# Absolute path required: auditctl is in /usr/sbin
+run0 /usr/sbin/auditctl -b 8192</code></pre>
+
+<h2>Phase 3: AIDE File Integrity</h2>
+
+<div class="note">
+    <strong>Pre-flight check:</strong> Verify <code>/var</code> is writable & persistent. On some rpm-ostree configurations, <code>/var</code> is ephemeral or size-constrained. AIDE databases can grow large; ensure at least 500MB free in <code>/var/lib</code>.
+</div>
+
+<div class="note">
+    <strong>Config syntax note:</strong> AIDE v0.19 replaced the <code>database</code> config option with <code>database_in</code> & <code>summarize_changes</code> with <code>report_summarize_changes</code>. If you have an existing <code>/etc/aide.conf</code> from v0.18, update these directives before initializing the database. This guide assumes a fresh v0.19 install with default config.
+</div>
+
+<h3>1. Create database directory</h3>
+
+<pre><code># AIDE requires a dedicated directory for its cryptographic database
+run0 /usr/bin/mkdir -p /var/lib/aide</code></pre>
+
+<h3>2. Initialize AIDE</h3>
+
+<pre><code># Initialize the AIDE database: scan entire filesystem & create baseline hashes
+# This takes several minutes. Progress is silent unless errors occur.
+# Uses the statically linked binary from /usr/local/bin; no LD_PRELOAD needed
+run0 /usr/local/bin/aide --init</code></pre>
+
+<h3>3. Move database to active location</h3>
+
+<div class="note">
+    <strong>Path assumption:</strong> This assumes <code>aide --init</code> created <code>/var/lib/aide/aide.db.new.gz</code>. If your AIDE version uses a different default output path, adjust accordingly. Check <code>/usr/local/bin/aide --config-check</code> output or <code>/usr/local/etc/aide.conf</code> for the <code>database_out</code> directive if this step fails. In v0.19, <code>database_in</code> replaces the old <code>database</code> directive.
+</div>
+
+<pre><code># Promote the newly initialized database to the active checked database
+# If "No such file": check /var/lib/aide/ for aide.db.new.gz.* variants
+run0 /usr/bin/mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz</code></pre>
+
+<h3>4. Create the check service</h3>
+
+<div class="note">
+    <strong>Service design:</strong> The systemd service uses <code>Type=oneshot</code> because AIDE is not a daemon; it runs once & exits. <code>StandardOutput=journal</code> ensures results are logged even if the timer fires while no user is logged in.
+</div>
+
+<pre><code># Create the one-shot service that runs the integrity check
+run0 /usr/bin/tee /etc/systemd/system/aide-check.service << 'EOF'
+[Unit]
+Description=AIDE integrity check
+
+[Service]
+Type=oneshot
+# Static binary path; no LD_PRELOAD bypass needed
+ExecStart=/usr/local/bin/aide --check
+StandardOutput=journal
+EOF
+
+# Create the timer that triggers the service daily
+run0 /usr/bin/tee /etc/systemd/system/aide-check.timer << 'EOF'
+[Unit]
+Description=Daily AIDE integrity check
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# Reload systemd to recognize the new units
+run0 /usr/bin/systemctl daemon-reload
+
+# Enable & start the timer (the service runs immediately, then daily thereafter)
+run0 /usr/bin/systemctl enable --now aide-check.timer</code></pre>
+
+<h2>Phase 4: SUID Scanner</h2>
+
+<div class="note">
+    <strong>Baseline timing matters:</strong> The scanner captures all mutable SUID binaries at first run as "normal." If you later layer packages that install to <code>/opt</code> or <code>/usr/local</code>, those new SUID binaries will trigger false positive alerts. After installing any such package, re-run <code>run0 /usr/local/bin/suid-scanner</code> to re-establish baseline. The script will overwrite <code>baseline.txt</code> with the new state.
+</div>
+
+<h3>1. Create the scanner script</h3>
+
+<div class="note">
+    <strong>Script logic:</strong> On first run, it copies <code>current.txt</code> to <code>baseline.txt</code>. On subsequent runs, it diffs against baseline. The <code>2>/dev/null</code> suppresses permission denied errors from restricted paths like <code>/var/lib/private</code>. If you need to audit those paths, run with elevated permissions or adjust the find command.
+</div>
+
+<pre><code># Create scanner that detects new setuid/setgid binaries in mutable paths
+# /usr is excluded because it is immutable on rpm-ostree; any SUID there is vendor-trusted
+run0 /usr/bin/tee /usr/local/bin/suid-scanner << 'EOF'
+#!/bin/bash
+set -euo pipefail
+
+BASELINE="/var/lib/suid-scanner/baseline.txt"
+CURRENT="/var/lib/suid-scanner/current.txt"
+DIFFOUT="/var/lib/suid-scanner/diff.txt"
+
+# Scan mutable paths only. /boot included because it is not immutable on all deployments.
+/usr/bin/find /etc /var /opt /home /usr/local /boot -type f \( -perm -4000 -o -perm -2000 \) 2>/dev/null | /usr/bin/sort > "$CURRENT"
+
+if [[ ! -f "$BASELINE" ]]; then
+    /usr/bin/cp "$CURRENT" "$BASELINE"
+    /usr/bin/echo "Baseline established: $(/usr/bin/wc -l < "$CURRENT") mutable SUID/SGID binaries"
+    exit 0
+fi
+
+if ! /usr/bin/diff -q "$BASELINE" "$CURRENT" > /dev/null 2>&1; then
+    /usr/bin/diff "$BASELINE" "$CURRENT" > "$DIFFOUT" || true
+    /usr/bin/echo "ALERT: SUID/SGID drift detected"
+else
+    : > "$DIFFOUT"
+fi
+EOF
+run0 /usr/bin/chmod +x /usr/local/bin/suid-scanner</code></pre>
+
+<h3>2. Create systemd timer</h3>
+
+<pre><code># Service unit for the scanner
+run0 /usr/bin/tee /etc/systemd/system/suid-scanner.service << 'EOF'
+[Unit]
+Description=Scan for new SUID/SGID binaries
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/suid-scanner
+EOF
+
+# Timer unit: runs daily, persists across missed intervals (e.g., system was off)
+run0 /usr/bin/tee /etc/systemd/system/suid-scanner.timer << 'EOF'
+[Unit]
+Description=Daily SUID/SGID scan
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+run0 /usr/bin/systemctl daemon-reload
+run0 /usr/bin/systemctl enable --now suid-scanner.timer</code></pre>
+
+<h3>3. Establish baseline manually</h3>
+
+<div class="note">
+    <strong>Expected output:</strong> On a clean SecureBlue install, this should report "Baseline established: 0 mutable SUID/SGID binaries." If it reports a non-zero number, investigate before accepting baseline: those binaries may be legitimate layered packages, or they may be existing compromise.
+</div>
+
+<pre><code># First run establishes baseline. Review output carefully before treating as trusted.
+run0 /usr/local/bin/suid-scanner</code></pre>
+
+<div class="note">
+    <strong>Note:</strong> On rpm-ostree, the baseline will likely be <strong>0</strong> because all SUID binaries live in the immutable <code>/usr</code> tree. This is normal; the scanner detects tampering in mutable paths.
+</div>
+
+<h2>Phase 5: Daily Review Script</h2>
+
+<div class="note">
+    <strong>Journal retention:</strong> On a clean SecureBlue install, journald defaults to <code>Storage=auto</code> with <code>MaxFileSec=1month</code>, which is adequate. However, if your system has <code>Storage=volatile</code> or aggressive vacuuming configured, audit events may be lost before the daily review runs. Verify <code>/etc/systemd/journald.conf</code> & ensure <code>/var/log/journal/</code> exists for persistent storage. The review script cannot summarize events that have already been deleted.
+</div>
+
+<div class="note">
+    <strong>PATH handling in script:</strong> The script sets PATH internally because it runs as a systemd service where PATH may be minimal. All audit tool calls use absolute paths to avoid any dependency on PATH resolution. This preserves SecureBlue's hardening intent while ensuring the script functions correctly in restricted environments.
+</div>
+
+<pre><code># Create the daily review script that summarizes all security events
+run0 /usr/bin/tee /usr/local/bin/audit-review << 'EOF'
+#!/bin/bash
+# Restore full PATH for utility commands, but audit tools use absolute paths below
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+echo "=== AUDIT SUMMARY ==="
+# Count active rules using absolute path for auditctl
+# If 0, auditd is down or rules were lost.
+echo "Active rules: $(/usr/sbin/auditctl -l 2>/dev/null | /usr/bin/wc -l)"
+echo ""
+
+echo "Identity changes:"
+/usr/sbin/ausearch -k identity_changes -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "Linker hijack attempts:"
+/usr/sbin/ausearch -k linker_hijack -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "Privilege escalation (polkit):"
+/usr/sbin/ausearch -k privilege_escalation -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "Systemd changes:"
+/usr/sbin/ausearch -k systemd_changes -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "Firewall/network changes:"
+/usr/sbin/ausearch -k firewall_changes -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "Canary trips:"
+/usr/sbin/ausearch -k canary_trip -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "SUID drift:"
+if [[ -s /var/lib/suid-scanner/diff.txt ]]; then
+    /usr/bin/cat /var/lib/suid-scanner/diff.txt
+else
+    echo "None (baseline: $(/usr/bin/wc -l < /var/lib/suid-scanner/baseline.txt 2>/dev/null || echo 0) mutable SUID binaries)"
+fi
+
+echo ""
+echo "run0 executions:"
+/usr/sbin/ausearch -k privesc_run0 -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "Account management:"
+/usr/sbin/ausearch -k privesc_account -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "SUID bit changes:"
+/usr/sbin/ausearch -k privesc_suid -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "Kernel module loading:"
+/usr/sbin/ausearch -k privesc_kmod -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "eBPF activity:"
+/usr/sbin/ausearch -k privesc_bpf -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "Capability changes:"
+/usr/sbin/ausearch -k privesc_caps -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "Persistence changes:"
+/usr/sbin/ausearch -k privesc_persist -ts recent 2>/dev/null | /usr/bin/grep -E "SYSCALL|PATH" | /usr/bin/tail -n 5 || echo "None"
+
+echo ""
+echo "AIDE status:"
+if /usr/bin/systemctl is-active aide-check.timer >/dev/null 2>&1; then
+    echo "AIDE timer active"
+else
+    echo "AIDE timer inactive"
+fi
+EOF
+run0 /usr/bin/chmod +x /usr/local/bin/audit-review</code></pre>
+
+<h3>Create daily review timer</h3>
+
+<div class="note">
+    <strong>Timer placement:</strong> This timer runs after the AIDE & SUID scanner timers have fired, ensuring the review captures their latest results. If you change the OnCalendar times of those timers, ensure this one runs later in the day.
+</div>
+
+<pre><code># Timer unit for daily review
+run0 /usr/bin/tee /etc/systemd/system/audit-review.timer << 'EOF'
+[Unit]
+Description=Daily audit summary
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# Service unit that executes the review script
+run0 /usr/bin/tee /etc/systemd/system/audit-review.service << 'EOF'
+[Unit]
+Description=Daily audit review
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/audit-review
+StandardOutput=journal
+EOF
+
+run0 /usr/bin/systemctl daemon-reload
+run0 /usr/bin/systemctl enable --now audit-review.timer</code></pre>
+
+<h2>Phase 6: Verification</h2>
+
+<div class="note">
+    <strong>Run these in order.</strong> If step 2 returns 0, do not proceed; fix auditd first. If step 3 shows no database, AIDE initialization failed. If step 5 produces errors, the static AIDE build was incomplete.
+</div>
+
+<div class="note">
+    <strong>SELinux denials:</strong> If any step fails silently, check for AVC denials: <code>/usr/sbin/ausearch -m AVC -ts recent</code>. SecureBlue's strict policy may block audit tools from accessing certain contexts. You may need to generate a local policy module with <code>audit2allow</code> if denials persist. This is beyond this guide's scope but may be necessary on hardened deployments.
+</div>
+
+<pre><code># 1. Verify all timers are active & scheduled correctly
+# Look for aide-check.timer, suid-scanner.timer & audit-review.timer
+run0 /usr/bin/systemctl list-timers --no-pager
+
+# Example output from my machine:
+# NEXT                          LEFT          LAST                          PASSED       UNIT                         ACTIVATES
+# Sat 2026-05-02 00:00:00 EDT   11h left      Fri 2026-05-01 00:00:02 EDT   12h ago      aide-check.timer             aide-check.service
+# Sat 2026-05-02 00:00:00 EDT   11h left      Fri 2026-05-01 00:00:02 EDT   12h ago      suid-scanner.timer           suid-scanner.service
+# Sat 2026-05-02 00:00:00 EDT   11h left      Fri 2026-05-01 00:00:02 EDT   12h ago      audit-review.timer           audit-review.service
+
+# 2. Confirm audit rules loaded
+# If 0: check systemctl status auditd; check for reboot completion after Phase 1
+run0 /usr/sbin/auditctl -l | /usr/bin/wc -l
+
+# Example output from my machine:
+# 44
+
+# 3. Confirm AIDE database exists & has reasonable size
+# If missing: re-run Phase 3 step 2
+run0 /usr/bin/ls -la /var/lib/aide/aide.db.gz
+
+# Example output from my machine:
+# -rw-------. 1 root root 18M May  1 09:30 /var/lib/aide/aide.db.gz
+
+# 4. Run manual review & inspect output for any existing alerts
+# This should show "None" across all categories on a clean system
+run0 /usr/local/bin/audit-review
+
+# Example output from my machine (clean system):
+# === AUDIT SUMMARY ===
+# Active rules: 44
+#
+# Identity changes: None
+# Linker hijack attempts: None
+# Privilege escalation (polkit): None
+# ...
+# SUID drift: None (baseline: 0 mutable SUID binaries)
+# AIDE timer active
+
+# 5. Test AIDE check manually (same command the timer uses)
+# Expected: no output if clean, or detailed diff if changes detected
+# If segfault: static link failed; rebuild AIDE in Phase 0 & verify ldd output
+run0 /usr/local/bin/aide --check
+
+# Example output from my machine (clean system):
+# [no output = all files match baseline]
+</code></pre>
+
+<h2>Phase 7: Remove Build Dependencies</h2>
+
+<div class="critical">
+    <strong>CRITICAL:</strong> The build dependencies installed in Phase 0 (bison, flex) expand the attack surface. Compilers & build tools are prime targets for privilege escalation if an attacker gains local access. Remove them immediately after AIDE is verified working. The static AIDE binary & its database remain fully functional without these tools.
+</div>
+
+<div class="note">
+    <strong>Reboot required:</strong> rpm-ostree uninstalls packages into a new deployment. The removal only becomes active after reboot. Until then, the tools remain available in the running system.
+</div>
+
+<h3>1. Uninstall build dependencies</h3>
+
+<pre><code># Remove bison & flex layered in Phase 0
+# AIDE remains functional because it is statically linked & installed to /usr/local
+rpm-ostree uninstall bison flex
+
+# REBOOT NOW to finalize removal & restore minimal attack surface
+systemctl reboot</code></pre>
+
+<h3>2. Verify clean state after reboot</h3>
+
+<pre><code># Confirm build tools are no longer available in the active deployment
+/usr/bin/which bison  # should return nothing
+/usr/bin/which flex   # should return nothing
+
+# Confirm static AIDE still functions normally
+/usr/local/bin/aide --version
+
+# Confirm all security timers are still active after reboot
+run0 /usr/bin/systemctl list-timers --no-pager | /usr/bin/grep -E "aide|suid|audit"</code></pre>
+
+<div class="note">
+    <strong>Future rebuilds:</strong> If you need to rebuild AIDE for updates, temporarily re-layer bison & flex using Phase 0, rebuild dependencies & AIDE, verify & remove them again using this same phase. The cycle is as follows: install tools → build deps → build AIDE → verify → uninstall tools → reboot. Just update the download URLs in the build commands before each rebuild.
+</div>
+
+
+<h2>Troubleshooting</h2>
+
+<p>These are issues I personally encountered while building this stack on my machine. They may not match your exact error, but the fix patterns should transfer.</p>
+
+<h3>AIDE segfaults during database operations</h3>
+
+<div class="critical">
+    <strong>Symptom:</strong> <code>run0 /usr/local/bin/aide --init</code> or <code>--check</code> crashes with a segfault or memory error.
+</div>
+
+<div class="note">
+    <strong>Cause:</strong> SecureBlue's <code>hardened_malloc</code> conflicts with dynamically linked AIDE. The Fedora package bundles glibc malloc hooks that hardened_malloc overrides.
+</div>
+
+<p><strong>Fix:</strong> Build AIDE statically from source as described in Phase 0. The static binary ignores <code>LD_PRELOAD</code> and uses its own bundled allocator. Verify with:</p>
+
+<pre><code>/usr/bin/ldd /usr/local/bin/aide
+# Expected: "not a dynamic executable" or empty output
+LD_PRELOAD=/usr/lib64/libhardened_malloc.so /usr/local/bin/aide --version
+# Expected: runs normally without crash</code></pre>
+
+<h3>auditctl reports "No rules" after augenrules --load</h3>
+
+<div class="critical">
+    <strong>Symptom:</strong> <code>run0 /usr/sbin/augenrules --load</code> prints "No rules" followed by warnings.
+</div>
+
+<div class="note">
+    <strong>Cause:</strong> <code>augenrules</code> checks the legacy <code>/etc/audit/audit.rules</code> file first. If it is empty, it reports "No rules" even while successfully loading rules from <code>/etc/audit/rules.d/</code>. The warnings about "Old style watch rules are slower" confirm the rules did load.
+</div>
+
+<p><strong>Fix:</strong> Ignore the "No rules" message if you see the style warnings. Verify with <code>run0 /usr/sbin/auditctl -l | /usr/bin/wc -l</code> or <code>run0 /usr/sbin/ausearch -k privesc_run0 -ts recent</code>.</p>
+
+<h3>systemctl restart auditd fails with "Operation refused"</h3>
+
+<div class="critical">
+    <strong>Symptom:</strong> <code>run0 systemctl restart auditd</code> returns "Operation refused, unit auditd.service may be requested by dependency only."
+</div>
+
+<div class="note">
+    <strong>Cause:</strong> SecureBlue hardens the auditd unit to refuse manual start/stop. This prevents accidental disruption of the audit subsystem.
+</div>
+
+<p><strong>Fix:</strong> Do not restart auditd. Load rules directly into the kernel with <code>run0 /usr/sbin/auditctl -R /etc/audit/rules.d/99-privesc.rules</code>. The daemon is already running; you only need to refresh the kernel configuration.</p>
+
+<h3>systemd-resolve floods privesc_suid audit logs</h3>
+
+<div class="critical">
+    <strong>Symptom:</strong> <code>run0 /usr/sbin/ausearch -k privesc_suid -ts recent</code> shows dozens of fchmod events from <code>systemd-resolve</code> with auid "unset".
+</div>
+
+<div class="note">
+    <strong>Cause:</strong> The <code>auid>=1000</code> filter treats unset auid (<code>4294967295</code>) as a large unsigned integer, so it passes the filter. systemd-resolve sets permissions on its runtime files during normal operation.
+</div>
+
+<p><strong>Fix:</strong> Add <code>-F auid!=-1</code> to the SUID rule in <code>/etc/audit/rules.d/98-privesc.rules</code> as shown in Phase 2 Step 4. Reload with <code>run0 /usr/sbin/auditctl -R /etc/audit/rules.d/98-privesc.rules</code>.</p>
+
+<h3>Closing thoughts</h3>
+
+<p>If you've made it this far, you know that building a detection layer on an immutable system can be awkward. You'll hit friction that standard guides simply won't mention. The issues above are what stopped me personally. If you find another, file an issue it and I'll add it to the list. Overall, I would offer that this stack is worth the afternoon it takes to set up. Best of luck.</p>
+
+
+</body>
+</html>
