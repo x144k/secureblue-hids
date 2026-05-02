@@ -459,7 +459,7 @@ EOF
 <h3>4. Create privilege escalation rules</h3>
 
 <div class="note">
-    <strong>Detection gap:</strong> Base rules watch configuration files but miss runtime escalation vectors: execution of elevation binaries, account manipulation syscalls, kernel module loading, eBPF attachment & SUID bit changes. These rules close that gap. The SUID rule catches permission changes by non-system users; review script filters known daemon noise.
+    <strong>Detection gap:</strong> Base rules watch configuration files but miss runtime escalation vectors: execution of elevation binaries, account manipulation syscalls, kernel module loading & eBPF attachment. These rules close that gap.
 </div>
 
 <pre><code># Create dedicated privilege escalation rules file
@@ -482,10 +482,6 @@ run0 /usr/bin/tee /etc/audit/rules.d/98-privesc.rules << 'EOF'
 # Authentication configuration
 -w /etc/pam.d/ -p wa -k privesc_pam
 -w /etc/security/ -p wa -k privesc_security
-
-# SUID/SGID bit manipulation by non-system users
-# auid>=1000 catches permission changes by non-system users; systemd-resolve noise is filtered at review time
--a always,exit -F arch=b64 -S chmod -S fchmod -S fchmodat -F auid>=1000 -k privesc_suid
 
 # Kernel module & eBPF loading
 -a always,exit -F arch=b64 -S init_module -S finit_module -S delete_module -k privesc_kmod
@@ -964,18 +960,6 @@ LD_PRELOAD=/usr/lib64/libhardened_malloc.so /usr/local/bin/aide --version
 </div>
 
 <p><strong>Fix:</strong> Do not restart auditd. Load rules directly into the kernel with <code>run0 /usr/sbin/auditctl -R /etc/audit/rules.d/99-privesc.rules</code>. The daemon is already running; you only need to refresh the kernel configuration.</p>
-
-<h3>systemd-resolve floods privesc_suid audit logs</h3>
-
-<div class="critical">
-    <strong>Symptom:</strong> <code>run0 /usr/sbin/ausearch -k privesc_suid -ts recent</code> shows dozens of fchmod events from <code>systemd-resolve</code> with auid "unset".
-</div>
-
-<div class="note">
-    <strong>Cause:</strong> The <code>auid>=1000</code> filter treats unset auid (<code>4294967295</code>) as a large unsigned integer, so it passes the filter. systemd-resolve sets permissions on its runtime files during normal operation.
-</div>
-
-<p><strong>Fix:</strong> Kernel-level auid negation does not work for unset values (<code>4294967295</code>). Filter daemon noise at the review script level instead. The <code>/usr/local/bin/audit-review</code> script pipes <code>ausearch -k privesc_suid</code> through <code>grep -v systemd-resolve</code> before displaying results. The kernel still logs all events; the review script drops the noise.</p>
 
 <h3>Closing thoughts</h3>
 
