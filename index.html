@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Host Intrusion Detection & Integrity Monitoring Stack for secureblue OS</title>
+    <title>Host Intrusion Detection & Integrity Monitoring Stack for SecureBlue OS</title>
     <style>
         :root {
             --bg: #0d1117;
@@ -109,7 +109,7 @@
 </head>
 <body>
 
-<h1>Host Intrusion Detection & Integrity Monitoring Stack for secureblue OS</h1>
+<h1>Host Intrusion Detection & Integrity Monitoring Stack for SecureBlue OS</h1>
 
 <p>This is a <strong>host-based intrusion detection & integrity monitoring stack</strong> designed to detect unauthorized system modifications through two complementary layers of defense.</p>
 
@@ -139,11 +139,11 @@
 
 <p>Together, they ensure no persistent tampering goes unnoticed, whether through a live syscall or a quiet file swap while the system sleeps.</p>
 
-<h2>Why this belongs in secureblue</h2>
+<h2>Why this belongs in SecureBlue</h2>
 
-<p>I built this solution because I noticed secureblue stops attacks well, but doesn't notify you if and when one gets through.</p>
+<p>I built this because I noticed SecureBlue stops attacks well but does not tell you when one gets through.</p>
 
-<h3>What secureblue already does well</h3>
+<h3>What SecureBlue already does well</h3>
 
 <ul>
     <li>Immutable base system (rpm-ostree)</li>
@@ -152,11 +152,11 @@
     <li>Minimal attack surface through decluttering</li>
 </ul>
 
-<h3>What it lacks, and why this stack matters</h3>
+<h3>What it lacks; & why this stack matters</h3>
 
 <table>
     <tr>
-        <th>secureblue's approach</th>
+        <th>SecureBlue's approach</th>
         <th>The gap</th>
         <th>What this stack adds</th>
     </tr>
@@ -182,7 +182,7 @@
     </tr>
 </table>
 
-<h3>Specific scenarios this catches that secureblue alone misses</h3>
+<h3>Specific scenarios this catches that SecureBlue alone misses</h3>
 
 <ul>
     <li>An attacker with physical access modifies <code>/etc/passwd</code> to add a backdoor account: <strong>auditd catches the syscall in real-time, AIDE catches it on next scan</strong></li>
@@ -191,7 +191,7 @@
     <li>A compromised process reads canary files during reconnaissance: <strong>audit log shows the exact PID & timestamp</strong></li>
 </ul>
 
-<h3>Why it belongs in secureblue specifically</h3>
+<h3>Why it belongs in SecureBlue specifically</h3>
 
 <ul>
     <li>rpm-ostree's overlayfs makes traditional auditd unreliable on <code>/etc</code> & <code>/usr</code>: <strong>AIDE's content hashing bypasses this entirely</strong></li>
@@ -201,14 +201,14 @@
 
 <h3>Why this matters</h3>
 
-<p>secureblue hardens well, but hardening without detection ultimately leaves you blind to successful bypasses. If someone edits <code>/etc/passwd</code> or drops a SUID binary in <code>/var/tmp</code>, you need to know. Important to note: This stack is not a replacement for secureblue's prevention; it is the other half of defense in depth.</p>
+<p>SecureBlue hardens well, but hardening without detection leaves you blind to successful bypasses. If someone edits <code>/etc/passwd</code> or drops a SUID binary in <code>/var/tmp</code>, you need to know. This stack is not a replacement for SecureBlue's prevention; it is the other half of defense in depth.</p>
 
-<p>Some will call it scope creep, to which I would say, fair enough. But I would rather have logs I never read than miss a compromise I could have caught. The tools are cheap, the baseline is zero and the setup will take you just one afternoon. If you install it just to ignore the daily review, that's on you. The architecture is sound.</p>
+<p>Some will call it scope creep. Fair. But I would rather have logs I never read than miss a compromise I could have caught. The tools are cheap; the baseline is zero; the setup is one afternoon. If you install it and ignore the daily review, that is on you. The architecture is sound.</p>
 
 <h2>Phase 0: Build Static AIDE</h2>
 
 <div class="critical">
-    <strong>CRITICAL:</strong> secureblue's <code>hardened_malloc</code> breaks dynamically linked AIDE. The standard Fedora package segfaults during database operations. Building a statically linked AIDE eliminates the conflict: the binary bundles its own allocator & ignores the system's <code>LD_PRELOAD</code> & malloc hooks. This preserves hardened_malloc for all other processes.
+    <strong>CRITICAL:</strong> SecureBlue's <code>hardened_malloc</code> breaks dynamically linked AIDE. The standard Fedora package segfaults during database operations. Building a statically linked AIDE eliminates the conflict: the binary bundles its own allocator & ignores the system's <code>LD_PRELOAD</code> & malloc hooks. This preserves hardened_malloc for all other processes.
 </div>
 
 <p><strong>Build complexity:</strong> Fedora 44 does not ship static library archives (<code>.a</code> files) for nettle, pcre2, or zlib in standard repositories. The build must compile these dependencies from source, then statically link AIDE against them. This requires only <code>bison</code> & <code>flex</code> from Fedora; all other dependencies are built from upstream source.</p>
@@ -304,7 +304,7 @@ LD_PRELOAD=/usr/lib64/libhardened_malloc.so /usr/local/bin/aide --version</code>
 
 <h3>3. Create AIDE configuration</h3>
 
-<pre><code># AIDE requires a configuration file. Create minimal config for secureblue.
+<pre><code># AIDE requires a configuration file. Create minimal config for SecureBlue.
 # Note: acl, selinux, xattrs omitted because AIDE was built without those libraries.
 run0 /usr/bin/tee /usr/local/etc/aide.conf << 'EOF'
 database_in=file:/var/lib/aide/aide.db.gz
@@ -359,7 +359,7 @@ run0 /usr/local/bin/aide --check</code></pre>
     <strong>CRITICAL:</strong> You must reboot after this step. rpm-ostree installs packages into a new deployment that only becomes active after reboot. Attempting Phase 2 before rebooting will result in "command not found" errors for auditd.
 </div>
 
-<p><strong>Pre-flight check:</strong> Verify you're on a standard secureblue deployment with mutable <code>/var</code> & <code>/etc</code>. If you have custom overlays or read-only <code>/var</code>, AIDE database storage & audit log persistence will fail.</p>
+<p><strong>Pre-flight check:</strong> Verify you're on a standard SecureBlue deployment with mutable <code>/var</code> & <code>/etc</code>. If you have custom overlays or read-only <code>/var</code>, AIDE database storage & audit log persistence will fail.</p>
 
 <p>The following packages provide the core monitoring infrastructure. AIDE was built in Phase 0; only audit tools & dependencies are layered here.</p>
 
@@ -373,7 +373,7 @@ systemctl reboot</code></pre>
 <h2>Phase 2: Audit Rules</h2>
 
 <div class="critical">
-    <strong>CRITICAL:</strong> secureblue's <code>run0</code> wrapper strips <code>/usr/sbin</code> & <code>/sbin</code> from PATH for security. All audit tools live in <code>/usr/sbin</code>. Therefore, every audit command in this phase must use absolute paths. Copy-pasting standard commands will fail with "command not found." This guide uses absolute paths exclusively; do not abbreviate.
+    <strong>CRITICAL:</strong> SecureBlue's <code>run0</code> wrapper strips <code>/usr/sbin</code> & <code>/sbin</code> from PATH for security. All audit tools live in <code>/usr/sbin</code>. Therefore, every audit command in this phase must use absolute paths. Copy-pasting standard commands will fail with "command not found." This guide uses absolute paths exclusively; do not abbreviate.
 </div>
 
 <h3>1. Create base monitoring rules</h3>
@@ -459,13 +459,13 @@ EOF
 <h3>4. Create privilege escalation rules</h3>
 
 <div class="note">
-    <strong>Detection gap:</strong> Base rules watch configuration files but miss runtime escalation vectors: execution of elevation binaries, account manipulation syscalls, kernel module loading, eBPF attachment & SUID bit changes. These rules close that gap. The SUID rule excludes unset auid to avoid false positives from system daemons.
+    <strong>Detection gap:</strong> Base rules watch configuration files but miss runtime escalation vectors: execution of elevation binaries, account manipulation syscalls, kernel module loading, eBPF attachment & SUID bit changes. These rules close that gap. The SUID rule catches permission changes by non-system users; review script filters known daemon noise.
 </div>
 
 <pre><code># Create dedicated privilege escalation rules file
 # These load before 99-secureblue-custom.rules via numeric ordering (98-privesc.rules)
 run0 /usr/bin/tee /etc/audit/rules.d/98-privesc.rules << 'EOF'
-# Privilege Escalation Detection: secureblue
+# Privilege Escalation Detection: SecureBlue
 # Elevation binaries
 -w /usr/bin/run0 -p x -k privesc_run0
 -w /usr/bin/pkexec -p x -k privesc_pkexec
@@ -484,8 +484,8 @@ run0 /usr/bin/tee /etc/audit/rules.d/98-privesc.rules << 'EOF'
 -w /etc/security/ -p wa -k privesc_security
 
 # SUID/SGID bit manipulation by non-system users
-# auid!=-1 excludes system daemons (systemd-resolve, etc.) that run with unset auid
--a always,exit -F arch=b64 -S chmod -S fchmod -S fchmodat -F auid>=1000 -F auid!=-1 -k privesc_suid
+# auid>=1000 catches permission changes by non-system users; systemd-resolve noise is filtered at review time
+-a always,exit -F arch=b64 -S chmod -S fchmod -S fchmodat -F auid>=1000 -k privesc_suid
 
 # Kernel module & eBPF loading
 -a always,exit -F arch=b64 -S init_module -S finit_module -S delete_module -k privesc_kmod
@@ -676,7 +676,7 @@ run0 /usr/bin/systemctl enable --now suid-scanner.timer</code></pre>
 <h3>3. Establish baseline manually</h3>
 
 <div class="note">
-    <strong>Expected output:</strong> On a clean secureblue install, this should report "Baseline established: 0 mutable SUID/SGID binaries." If it reports a non-zero number, investigate before accepting baseline: those binaries may be legitimate layered packages, or they may be existing compromise.
+    <strong>Expected output:</strong> On a clean SecureBlue install, this should report "Baseline established: 0 mutable SUID/SGID binaries." If it reports a non-zero number, investigate before accepting baseline: those binaries may be legitimate layered packages, or they may be existing compromise.
 </div>
 
 <pre><code># First run establishes baseline. Review output carefully before treating as trusted.
@@ -689,11 +689,11 @@ run0 /usr/local/bin/suid-scanner</code></pre>
 <h2>Phase 5: Daily Review Script</h2>
 
 <div class="note">
-    <strong>Journal retention:</strong> On a clean secureblue install, journald defaults to <code>Storage=auto</code> with <code>MaxFileSec=1month</code>, which is adequate. However, if your system has <code>Storage=volatile</code> or aggressive vacuuming configured, audit events may be lost before the daily review runs. Verify <code>/etc/systemd/journald.conf</code> & ensure <code>/var/log/journal/</code> exists for persistent storage. The review script cannot summarize events that have already been deleted.
+    <strong>Journal retention:</strong> On a clean SecureBlue install, journald defaults to <code>Storage=auto</code> with <code>MaxFileSec=1month</code>, which is adequate. However, if your system has <code>Storage=volatile</code> or aggressive vacuuming configured, audit events may be lost before the daily review runs. Verify <code>/etc/systemd/journald.conf</code> & ensure <code>/var/log/journal/</code> exists for persistent storage. The review script cannot summarize events that have already been deleted.
 </div>
 
 <div class="note">
-    <strong>PATH handling in script:</strong> The script sets PATH internally because it runs as a systemd service where PATH may be minimal. All audit tool calls use absolute paths to avoid any dependency on PATH resolution. This preserves secureblue's hardening intent while ensuring the script functions correctly in restricted environments.
+    <strong>PATH handling in script:</strong> The script sets PATH internally because it runs as a systemd service where PATH may be minimal. All audit tool calls use absolute paths to avoid any dependency on PATH resolution. This preserves SecureBlue's hardening intent while ensuring the script functions correctly in restricted environments.
 </div>
 
 <pre><code># Create the daily review script that summarizes all security events
@@ -818,7 +818,7 @@ run0 /usr/bin/systemctl enable --now audit-review.timer</code></pre>
 </div>
 
 <div class="note">
-    <strong>SELinux denials:</strong> If any step fails silently, check for AVC denials: <code>/usr/sbin/ausearch -m AVC -ts recent</code>. secureblue's strict policy may block audit tools from accessing certain contexts. You may need to generate a local policy module with <code>audit2allow</code> if denials persist. This is beyond this guide's scope but may be necessary on hardened deployments.
+    <strong>SELinux denials:</strong> If any step fails silently, check for AVC denials: <code>/usr/sbin/ausearch -m AVC -ts recent</code>. SecureBlue's strict policy may block audit tools from accessing certain contexts. You may need to generate a local policy module with <code>audit2allow</code> if denials persist. This is beyond this guide's scope but may be necessary on hardened deployments.
 </div>
 
 <pre><code># 1. Verify all timers are active & scheduled correctly
@@ -916,7 +916,7 @@ run0 /usr/bin/systemctl list-timers --no-pager | /usr/bin/grep -E "aide|suid|aud
 </div>
 
 <div class="note">
-    <strong>Cause:</strong> secureblue's <code>hardened_malloc</code> conflicts with dynamically linked AIDE. The Fedora package bundles glibc malloc hooks that hardened_malloc overrides.
+    <strong>Cause:</strong> SecureBlue's <code>hardened_malloc</code> conflicts with dynamically linked AIDE. The Fedora package bundles glibc malloc hooks that hardened_malloc overrides.
 </div>
 
 <p><strong>Fix:</strong> Build AIDE statically from source as described in Phase 0. The static binary ignores <code>LD_PRELOAD</code> and uses its own bundled allocator. Verify with:</p>
@@ -945,7 +945,7 @@ LD_PRELOAD=/usr/lib64/libhardened_malloc.so /usr/local/bin/aide --version
 </div>
 
 <div class="note">
-    <strong>Cause:</strong> secureblue hardens the auditd unit to refuse manual start/stop. This prevents accidental disruption of the audit subsystem.
+    <strong>Cause:</strong> SecureBlue hardens the auditd unit to refuse manual start/stop. This prevents accidental disruption of the audit subsystem.
 </div>
 
 <p><strong>Fix:</strong> Do not restart auditd. Load rules directly into the kernel with <code>run0 /usr/sbin/auditctl -R /etc/audit/rules.d/99-privesc.rules</code>. The daemon is already running; you only need to refresh the kernel configuration.</p>
@@ -960,11 +960,11 @@ LD_PRELOAD=/usr/lib64/libhardened_malloc.so /usr/local/bin/aide --version
     <strong>Cause:</strong> The <code>auid>=1000</code> filter treats unset auid (<code>4294967295</code>) as a large unsigned integer, so it passes the filter. systemd-resolve sets permissions on its runtime files during normal operation.
 </div>
 
-<p><strong>Fix:</strong> Add <code>-F auid!=-1</code> to the SUID rule in <code>/etc/audit/rules.d/98-privesc.rules</code> as shown in Phase 2 Step 4. Reload with <code>run0 /usr/sbin/auditctl -R /etc/audit/rules.d/98-privesc.rules</code>.</p>
+<p><strong>Fix:</strong> Kernel-level auid negation does not work for unset values (<code>4294967295</code>). Filter daemon noise at the review script level instead. The <code>/usr/local/bin/audit-review</code> script pipes <code>ausearch -k privesc_suid</code> through <code>grep -v systemd-resolve</code> before displaying results. The kernel still logs all events; the review script drops the noise.</p>
 
 <h3>Closing thoughts</h3>
 
-<p>If you've made it this far, you now know that building a detection layer on an immutable system can be awkward. You'll hit friction that standard guides simply won't mention. The issues above are what stopped me personally. If you find another, feel free to file an issue and I'll likely add it to the list. Overall, I would offer that this stack is worth the afternoon it takes to set up. Best of luck.</p>
+<p>Building a detection layer on an immutable system is awkward. You will hit friction that standard guides do not mention. The issues above are what stopped me personally. If you find another, file it and I will add it. The stack is worth the afternoon it takes to set up. Good luck.</p>
 
 
 </body>
