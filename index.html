@@ -872,16 +872,16 @@ run0 /usr/local/bin/aide --check
 <h2>Phase 7: Remove Build Dependencies</h2>
 
 <div class="critical">
-    <strong>CRITICAL:</strong> The build tools installed in Phase 0 expand the attack surface. <code>bison</code> & <code>flex</code> are rpm-ostree layered packages; nettle, pcre2 & zlib were built from source to a local prefix. Compilers & build artifacts are prime targets for privilege escalation if an attacker gains local access. Remove them immediately after AIDE is verified working. The static AIDE binary & its database remain fully functional without these tools.
+    <strong>CRITICAL:</strong> The build tools installed in Phase 0 (<code>bison</code> & <code>flex</code>) are rpm-ostree layered packages that expand the attack surface. Compilers are prime targets for privilege escalation if an attacker gains local access. Remove them immediately after AIDE is verified working. The static AIDE binary & its database remain fully functional without these tools.
 </div>
 
 <div class="note">
     <strong>Reboot required:</strong> rpm-ostree uninstalls packages into a new deployment. The removal only becomes active after reboot. Until then, the tools remain available in the running system.
 </div>
 
-<h3>1. Remove rpm-ostree layered build tools</h3>
+<h3>1. Uninstall build tools</h3>
 
-<pre><code># Only bison & flex were layered via rpm-ostree in Phase 0
+<pre><code># Remove bison & flex layered via rpm-ostree in Phase 0
 # AIDE remains functional because it is statically linked & installed to /usr/local
 rpm-ostree uninstall bison flex
 
@@ -891,7 +891,6 @@ systemctl reboot</code></pre>
 <h3>2. Clean up local source build artifacts</h3>
 
 <pre><code># Remove the local build directory where nettle, pcre2 & zlib were compiled
-# These were built from source, not installed via rpm-ostree
 rm -rf /var/home/$(whoami)/aide-static-deps
 
 # Remove source tarballs & extracted directories if still present
@@ -914,6 +913,10 @@ run0 /usr/bin/systemctl list-timers --no-pager | /usr/bin/grep -E "aide|suid|aud
 
 <div class="note">
     <strong>Future rebuilds:</strong> If you need to rebuild AIDE for updates, temporarily re-layer <code>bison</code> & <code>flex</code> via rpm-ostree, rebuild nettle/pcre2/zlib from source to a local prefix, then build AIDE. Verify & remove <code>bison</code>/<code>flex</code> again using this same phase. The cycle is: install bison/flex → build deps from source → build AIDE → verify → uninstall bison/flex → clean local build dir → reboot. Just update the download URLs in the build commands before each rebuild.
+</div>
+
+<div class="note">
+    <strong>Accidental layers:</strong> If you layered additional packages during troubleshooting (e.g. <code>nettle-devel</code>, <code>pcre2-devel</code>, <code>zlib-devel</code>, <code>glibc-static</code>), remove them separately with <code>rpm-ostree uninstall</code>. They are not part of the guide's intended procedure.
 </div>
 
 
