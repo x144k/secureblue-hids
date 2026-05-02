@@ -201,9 +201,9 @@
 
 <h3>Why this matters</h3>
 
-<p>SecureBlue hardens well, but hardening without detection leaves you blind to successful bypasses. If someone edits <code>/etc/passwd</code> or drops a SUID binary in <code>/var/tmp</code>, you need to know. This stack is not a replacement for SecureBlue's prevention; it is the other half of defense in depth.</p>
+<p>SecureBlue hardens well, but hardening without detection ultimately leaves you blind to successful bypasses. If someone edits <code>/etc/passwd</code> or drops a SUID binary in <code>/var/tmp</code>, you need to know. This stack is not a replacement for SecureBlue's prevention; it is the other half of defense in depth.</p>
 
-<p>Some will call it scope creep. Fair. But I would rather have logs I never read than miss a compromise I could have caught. The tools are cheap; the baseline is zero; the setup is one afternoon. If you install it and ignore the daily review, that is on you. The architecture is sound.</p>
+<p>Some will call it scope creep, to which I would say, fair enough. But I would rather have logs I never read than miss a compromise I could have caught. The tools are free, the baseline is zero and the setup should take an afternoon. If you install it and just ignore the daily review, that'ss on you. The architecture is sound.</p>
 
 <h2>Phase 0: Build Static AIDE</h2>
 
@@ -963,7 +963,7 @@ LD_PRELOAD=/usr/lib64/libhardened_malloc.so /usr/local/bin/aide --version
 
 <h3>Closing thoughts</h3>
 
-<p>Building a detection layer on an immutable system is awkward. You will hit friction that standard guides do not mention. The issues above are what stopped me personally. If you find another, file it and I will add it. The stack is worth the afternoon it takes to set up. Good luck.</p>
+<p>If you've made it this far, you know that building a detection layer on an immutable system can be awkward. You'll hit friction that standard guides simply do not mention. The issues above are what stopped me personally. If you find another, file it and I'll likely will add it. I would offer that the stack is worth the afternoon it takes to set up. Best of luck.</p>
 
 
 </body>
