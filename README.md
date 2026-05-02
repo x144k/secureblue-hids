@@ -32,7 +32,6 @@ This is what I personally hit while building and testing this stack. Your mileag
 - **AIDE segfaulted during database init.** Fedora's AIDE package is dynamically linked and conflicts with hardened_malloc. I had to build AIDE statically from source, which meant compiling nettle, pcre2, and zlib manually. Nettle 4.0 also broke AIDE 0.19.3's API; I applied a one-line patch to `src/md.c`.
 - **`augenrules` threw "Old style watch rules are slower" warnings.** These are harmless but noisy. They appear because the kernel prefers syscall-based rules over legacy file watches. I kept the file watches for readability.
 - **`systemctl restart auditd` is blocked by unit hardening.** secureblue intentionally refuses manual auditd restarts. I learned to use `auditctl -R` to load rules directly into the running kernel instead.
-- **`systemd-resolve` flooded my privesc_suid logs.** The `auid>=1000` filter catches daemons with unset auid (`4294967295`). Kernel-level auid negation does not work for unset values, so I filter `systemd-resolve` noise at the review script level instead.
 
 ## Components
 
