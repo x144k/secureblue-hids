@@ -5,7 +5,7 @@ https://secureblue.dev/
 
 This repository provides instructions to implement a complete detection layer for secureblue's prevention-focused architecture: kernel audit rules, AIDE file integrity scanning, SUID binary drift detection, tripwires & automated daily review.
 
-**View the full guide here:** [secureblue-hids](https://x144k.github.io/secureblue-hids )
+**View the full guide here:** [secureblue-hids](https://x144k.github.io/secureblue-hids)
 
 ![SecureBlue HIDS Stack](images/secureblue-hids-diagram.png)
 
