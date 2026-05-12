@@ -128,6 +128,7 @@
 <base target="_blank">
 <base target="_blank">
 <base target="_blank">
+<base target="_blank">
 </head>
 <body>
 
@@ -398,10 +399,14 @@ systemctl reboot</code></pre>
     <strong>CRITICAL:</strong> secureblue's <code>run0</code> wrapper strips <code>/usr/sbin</code> & <code>/sbin</code> from PATH for security. All audit tools live in <code>/usr/sbin</code>. Therefore, every audit command in this phase must use absolute paths. Copy-pasting standard commands will fail with "command not found." This guide uses absolute paths exclusively; do not abbreviate.
 </div>
 
+<div class="note">
+    <strong>Heredoc paste warning:</strong> Creating scripts via <code>run0 tee ... &lt;&lt; 'EOF'</code> can corrupt if your terminal emulator mishandles clipboard paste or if the heredoc delimiter is accidentally modified. After every file creation, verify the first few lines with <code>run0 head -n 5 /path/to/file</code>. If you see <code>[paste:</code> garbage or other corruption, delete the file and recreate it using a local temp file: <code>tee ~/file.tmp &lt;&lt; 'EOF' ... EOF</code> then <code>run0 mv ~/file.tmp /path/to/file</code>.
+</div>
+
 <h3>1. Create base monitoring rules</h3>
 
 <div class="note">
-    <strong>Note:</strong> The <code>$(whoami)</code> command expands to your actual username at file creation time because the heredoc uses double quotes. Verify the output matches your username.
+    <strong>Note:</strong> The <code>$USER</code> variable in the canary path below expands to your username before <code>run0</code> executes. Verify the output matches your username by running <code>run0 /usr/bin/grep canary /etc/audit/rules.d/99-secureblue-custom.rules</code> after creation.
 </div>
 
 <pre><code># Create audit rules defining watched paths & their monitoring keys
@@ -450,6 +455,11 @@ run0 /usr/bin/tee /etc/audit/rules.d/99-secureblue-custom.rules << EOF
 -w /var/.system_canary -p rwxa -k canary_trip
 -w /home/$USER/.user_canary -p rwxa -k canary_trip
 EOF</code></pre>
+
+<div class="note">
+    <strong>Verification:</strong> Confirm the rules file was written correctly:
+    <code>run0 /usr/bin/head -n 5 /etc/audit/rules.d/99-secureblue-custom.rules</code>
+</div>
 
 <div class="note">
     <strong>Path alignment check:</strong> Verify that the user canary path matches the audit rule created in Step 1. The rule watches <code>/home/$USER/.user_canary</code>. Creating the file at a different path means the tripwire watches a nonexistent location.
@@ -522,6 +532,11 @@ run0 /usr/bin/tee /etc/audit/rules.d/98-privesc.rules << 'EOF'
 -w /etc/at.allow -p wa -k privesc_persist
 -w /etc/at.deny -p wa -k privesc_persist
 EOF</code></pre>
+
+<div class="note">
+    <strong>Verification:</strong> Confirm the rules file was written correctly:
+    <code>run0 /usr/bin/head -n 5 /etc/audit/rules.d/98-privesc.rules</code>
+</div>
 
 <h3>5. Compile & load rules</h3>
 
@@ -663,6 +678,11 @@ fi
 EOF
 run0 /usr/bin/chmod +x /usr/local/bin/suid-scanner</code></pre>
 
+<div class="note">
+    <strong>Verification:</strong> Confirm the script was written correctly:
+    <code>run0 /usr/bin/head -n 5 /usr/local/bin/suid-scanner</code>
+</div>
+
 <h3>2. Create systemd timer</h3>
 
 <pre><code># Service unit for the scanner
@@ -707,7 +727,7 @@ run0 /usr/local/bin/suid-scanner</code></pre>
 <h2>Phase 5: Daily Review Script</h2>
 
 <div class="note">
-    <strong>Journal retention:</strong> On a clean secureblue install, journald defaults to <code>Storage=auto</code> with <code>MaxFileSec=1month</code>, which is adequate. However, if your system has <code>Storage=volatile</code> or aggressive vacuuming configured, audit events may be lost before the daily review runs. Verify <code>/etc/systemd/journald.conf</code> & ensure <code>/var/log/journal/</code> exists for persistent storage. The review script cannot summarize events that have already been deleted.
+    <strong>Journal retention:</strong> On a clean secureblue install, journald defaults to <code>Storage=auto</code> with <code>MaxFileSec=1month</code>, which is adequate. If <code>/etc/systemd/journald.conf</code> does not exist, check whether <code>/var/log/journal/</code> exists. If it does, persistent storage is already active via systemd defaults. If your system has <code>Storage=volatile</code> or aggressive vacuuming configured, audit events may be lost before the daily review runs. The review script cannot summarize events that have already been deleted.
 </div>
 
 <div class="note">
@@ -796,6 +816,20 @@ fi
 EOF
 run0 /usr/bin/chmod +x /usr/local/bin/audit-review</code></pre>
 
+<div class="note">
+    <strong>Verification:</strong> Confirm the script was written correctly:
+    <code>run0 /usr/bin/head -n 5 /usr/local/bin/audit-review</code>
+</div>
+
+<h3>Test the review script</h3>
+
+<div class="note">
+    <strong>Test before enabling:</strong> Run the script manually with a timeout to ensure it does not hang. If <code>ausearch</code> hangs, auditd may be down or the script may be corrupted.
+</div>
+
+<pre><code># Test manually before enabling the timer
+run0 timeout 30 /usr/local/bin/audit-review</code></pre>
+
 <h3>Create daily review timer</h3>
 
 <div class="note">
@@ -828,6 +862,19 @@ EOF
 
 run0 /usr/bin/systemctl daemon-reload
 run0 /usr/bin/systemctl enable --now audit-review.timer</code></pre>
+
+<h3>Reading the daily review logs</h3>
+
+<p>The review service logs to the systemd journal. Read the output with:</p>
+
+<pre><code># Most recent review output
+run0 journalctl -u audit-review.service -n 200
+
+# Or since last boot
+run0 journalctl -u audit-review.service -b
+
+# Watch live during next scheduled run
+run0 journalctl -u audit-review.service -f</code></pre>
 
 <h2>Phase 6: Verification</h2>
 
@@ -970,6 +1017,22 @@ LD_PRELOAD=/usr/lib64/libhardened_malloc.so /usr/local/bin/aide --version
 <div class="cause"><strong>Cause:</strong> secureblue hardens the auditd unit to refuse manual start/stop. This prevents accidental disruption of the audit subsystem.</div>
 
 <div class="fix"><strong>Fix:</strong> Do not restart auditd. Load rules directly into the kernel with <code>run0 /usr/sbin/auditctl -R /etc/audit/rules.d/99-privesc.rules</code>. The daemon is already running; you only need to refresh the kernel configuration.</div>
+
+<h3>Script fails with "[paste:" or other garbage</h3>
+
+<div class="symptom"><strong>Symptom:</strong> A script created via <code>run0 tee ... &lt;&lt; 'EOF'</code> fails with <code>[paste: command not found</code> or contains unexpected text.</div>
+
+<div class="cause"><strong>Cause:</strong> The heredoc was corrupted during terminal paste or shell expansion. This happens when the delimiter or contents are mangled by the clipboard or terminal emulator.</div>
+
+<div class="fix"><strong>Fix:</strong> Delete the corrupted file and recreate it using a local temporary file without <code>run0</code>:
+<pre><code>tee ~/audit-review.tmp &lt;&lt; 'EOF'
+#!/bin/bash
+[your script contents]
+EOF
+run0 mv ~/audit-review.tmp /usr/local/bin/audit-review
+run0 chmod +x /usr/local/bin/audit-review
+run0 head -n 5 /usr/local/bin/audit-review</code></pre>
+Then verify the first few lines look correct before proceeding.</div>
 
 <h3>Closing thoughts</h3>
 
