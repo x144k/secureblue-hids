@@ -403,6 +403,10 @@ systemctl reboot</code></pre>
     <strong>Heredoc paste warning:</strong> Creating scripts via <code>run0 tee ... &lt;&lt; 'EOF'</code> can corrupt if your terminal emulator mishandles clipboard paste or if the heredoc delimiter is accidentally modified. After every file creation, verify the first few lines with <code>run0 head -n 5 /path/to/file</code>. If you see <code>[paste:</code> garbage or other corruption, delete the file and recreate it using a local temp file: <code>tee ~/file.tmp &lt;&lt; 'EOF' ... EOF</code> then <code>run0 mv ~/file.tmp /path/to/file</code>.
 </div>
 
+<div class="note">
+    <strong>Polkit authorization:</strong> <code>systemctl</code> and <code>journalctl</code> are polkit-aware and do not need a <code>run0</code> prefix. Running <code>systemctl enable ...</code> or <code>journalctl -u ...</code> directly will prompt for authentication via polkit when required. Only use <code>run0</code> for commands that lack native polkit integration, such as <code>tee</code>, <code>mkdir</code>, <code>mv</code>, <code>auditctl</code>, <code>aide</code>, and <code>ausearch</code>.
+</div>
+
 <h3>1. Create base monitoring rules</h3>
 
 <div class="note">
@@ -633,10 +637,10 @@ WantedBy=timers.target
 EOF
 
 # Reload systemd to recognize the new units
-run0 /usr/bin/systemctl daemon-reload
+systemctl daemon-reload
 
 # Enable & start the timer (the service runs immediately, then daily thereafter)
-run0 /usr/bin/systemctl enable --now aide-check.timer</code></pre>
+systemctl enable --now aide-check.timer</code></pre>
 
 <h2>Phase 4: SUID Scanner</h2>
 
@@ -708,8 +712,8 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-run0 /usr/bin/systemctl daemon-reload
-run0 /usr/bin/systemctl enable --now suid-scanner.timer</code></pre>
+systemctl daemon-reload
+systemctl enable --now suid-scanner.timer</code></pre>
 
 <h3>3. Establish baseline manually</h3>
 
@@ -860,21 +864,21 @@ ExecStart=/usr/local/bin/audit-review
 StandardOutput=journal
 EOF
 
-run0 /usr/bin/systemctl daemon-reload
-run0 /usr/bin/systemctl enable --now audit-review.timer</code></pre>
+systemctl daemon-reload
+systemctl enable --now audit-review.timer</code></pre>
 
 <h3>Reading the daily review logs</h3>
 
 <p>The review service logs to the systemd journal. Read the output with:</p>
 
 <pre><code># Most recent review output
-run0 journalctl -u audit-review.service -n 200
+journalctl -u audit-review.service -n 200
 
 # Or since last boot
-run0 journalctl -u audit-review.service -b
+journalctl -u audit-review.service -b
 
 # Watch live during next scheduled run
-run0 journalctl -u audit-review.service -f</code></pre>
+journalctl -u audit-review.service -f</code></pre>
 
 <h2>Phase 6: Verification</h2>
 
@@ -888,7 +892,7 @@ run0 journalctl -u audit-review.service -f</code></pre>
 
 <pre><code># 1. Verify all timers are active & scheduled correctly
 # Look for aide-check.timer, suid-scanner.timer & audit-review.timer
-run0 /usr/bin/systemctl list-timers --no-pager
+systemctl list-timers --no-pager
 
 # Example output from my machine:
 # NEXT                          LEFT          LAST                          PASSED       UNIT                         ACTIVATES
@@ -974,7 +978,7 @@ rm -rf /var/home/$(whoami)/nettle-4.0* /var/home/$(whoami)/pcre2-* /var/home/$(w
 /usr/local/bin/aide --version
 
 # Confirm all security timers are still active after reboot
-run0 /usr/bin/systemctl list-timers --no-pager | /usr/bin/grep -E "aide|suid|audit"</code></pre>
+systemctl list-timers --no-pager | /usr/bin/grep -E "aide|suid|audit"</code></pre>
 
 <div class="note">
     <strong>Future rebuilds:</strong> If you need to rebuild AIDE for updates, temporarily re-layer <code>bison</code> & <code>flex</code> via rpm-ostree, rebuild nettle/pcre2/zlib from source to a local prefix, then build AIDE. Verify & remove <code>bison</code>/<code>flex</code> again using this same phase. The cycle is: install bison/flex → build deps from source → build AIDE → verify → uninstall bison/flex → clean local build dir → reboot. Just update the download URLs in the build commands before each rebuild.
