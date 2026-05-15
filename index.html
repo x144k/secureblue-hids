@@ -132,6 +132,7 @@
 <base target="_blank">
 <base target="_blank">
 <base target="_blank">
+<base target="_blank">
 </head>
 <body>
 
@@ -760,7 +761,7 @@ run0 /usr/local/bin/suid-scanner</code></pre>
 <h2>Phase 5: Daily Review Script</h2>
 
 <div class="critical">
-    <strong>CRITICAL: Kernel dependency.</strong> This phase requires audit support verified in Phase 0. If your kernel lacks <code>CONFIG_AUDIT</code>, the daily review script will report zero active rules and empty categories because no audit events are being generated. On such systems, rely on AIDE (Phase 3) and the SUID scanner (Phase 4) for detection.
+    <strong>CRITICAL: secureblue disables audit at runtime.</strong> On stock secureblue, <code>lockdown=confidentiality</code> prevents the audit subsystem from generating events. The daily review script will report zero active rules and empty audit categories because no audit events are being generated. This is expected. The guide provides an AIDE-only version that works on all secureblue deployments.
 </div>
 
 <div class="critical">
