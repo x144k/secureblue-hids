@@ -881,10 +881,10 @@ systemctl enable --now audit-review.timer</code></pre>
 <p>Log out of your primary user and log in as your admin account, then read the journal. This is secureblue's intended model: the HIDS output stays behind the privilege boundary.</p>
 
 <pre><code># From the admin account
-journalctl -u audit-review.service -n 200
+run0 -u admin journalctl -u audit-review.service -n 200
 
 # Or since last boot
-journalctl -u audit-review.service -b</code></pre>
+run0 -u admin journalctl -u audit-review.service -b</code></pre>
 
 <h4>Option B: run0 journalctl (practical compromise)</h4>
 
