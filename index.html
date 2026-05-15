@@ -129,6 +129,7 @@
 <base target="_blank">
 <base target="_blank">
 <base target="_blank">
+<base target="_blank">
 </head>
 <body>
 
@@ -730,6 +731,10 @@ run0 /usr/local/bin/suid-scanner</code></pre>
 
 <h2>Phase 5: Daily Review Script</h2>
 
+<div class="critical">
+    <strong>CRITICAL: secureblue user/admin split:</strong> secureblue recommends creating a dedicated admin account for privilege escalation while keeping your primary user account unprivileged. This means your primary user will <strong>not</strong> be in the <code>wheel</code>, <code>adm</code>, or <code>systemd-journal</code> groups. As a result, <code>journalctl -u audit-review.service</code> will show "No entries" or permission denied from your primary account. This is by design. The guide below provides three options for reading daily review output that respect this model.
+</div>
+
 <div class="note">
     <strong>Journal retention:</strong> On a clean secureblue install, journald defaults to <code>Storage=auto</code> with <code>MaxFileSec=1month</code>, which is adequate. If <code>/etc/systemd/journald.conf</code> does not exist, check whether <code>/var/log/journal/</code> exists. If it does, persistent storage is already active via systemd defaults. If your system has <code>Storage=volatile</code> or aggressive vacuuming configured, audit events may be lost before the daily review runs. The review script cannot summarize events that have already been deleted.
 </div>
@@ -869,16 +874,57 @@ systemctl enable --now audit-review.timer</code></pre>
 
 <h3>Reading the daily review logs</h3>
 
-<p>The review service logs to the systemd journal. Read the output with:</p>
+<p>secureblue's user/admin split means your primary user cannot read system journals. Choose based on your security/convenience preference.</p>
 
-<pre><code># Most recent review output
+<h4>Option A: Admin account + journalctl (recommended)</h4>
+
+<p>Log out of your primary user and log in as your admin account, then read the journal. This is secureblue's intended model: the HIDS output stays behind the privilege boundary.</p>
+
+<pre><code># From the admin account
 journalctl -u audit-review.service -n 200
 
 # Or since last boot
-journalctl -u audit-review.service -b
+journalctl -u audit-review.service -b</code></pre>
 
-# Watch live during next scheduled run
-journalctl -u audit-review.service -f</code></pre>
+<h4>Option B: run0 journalctl (practical compromise)</h4>
+
+<p>Use <code>run0</code> to read the journal from your primary user. This prompts for the admin password each time but requires no configuration changes and keeps output inside the journal.</p>
+
+<pre><code># Read from primary user account (will prompt for admin password)
+run0 journalctl -u audit-review.service -n 200
+
+# Or since last boot
+run0 journalctl -u audit-review.service -b</code></pre>
+
+<h4>Option C: File-based output (convenience trade-off)</h4>
+
+<div class="critical">
+    <strong>WARNING:</strong> This option makes your daily review output world-readable. A compromised unprivileged process can see your HIDS baseline, active rule count, and whether any alerts fired. This is a real security degradation. Only use this if you fully accept that trade-off for daily convenience.
+</div>
+
+<p>Reconfigure the service to append output to a file in <code>/var/log</code> with broad read permissions:</p>
+
+<pre><code># Reconfigure the service to write to a file
+run0 /usr/bin/tee /etc/systemd/system/audit-review.service << 'EOF'
+[Unit]
+Description=Daily audit review
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/audit-review
+StandardOutput=append:/var/log/audit-review.log
+EOF
+
+# Create the log file with read permissions for all users
+run0 /usr/bin/touch /var/log/audit-review.log
+run0 /usr/bin/chmod 644 /var/log/audit-review.log
+
+# Reload and restart
+systemctl daemon-reload
+systemctl restart audit-review.service
+
+# Now your primary user can read it directly
+cat /var/log/audit-review.log</code></pre>
 
 <h2>Phase 6: Verification</h2>
 
@@ -916,7 +962,11 @@ run0 /usr/bin/ls -la /var/lib/aide/aide.db.gz
 
 # 4. Run manual review & inspect output for any existing alerts
 # This should show "None" across all categories on a clean system
+# Note: This runs the script directly, not via systemd, so it prints to your terminal
 run0 /usr/local/bin/audit-review
+
+# To see the systemd service output from the journal, use one of the methods in Phase 5
+# (admin account, file-based output, or run0 journalctl)
 
 # Example output from my machine (clean system):
 # === AUDIT SUMMARY ===
