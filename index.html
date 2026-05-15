@@ -130,6 +130,7 @@
 <base target="_blank">
 <base target="_blank">
 <base target="_blank">
+<base target="_blank">
 </head>
 <body>
 
@@ -732,7 +733,7 @@ run0 /usr/local/bin/suid-scanner</code></pre>
 <h2>Phase 5: Daily Review Script</h2>
 
 <div class="critical">
-    <strong>CRITICAL: secureblue user/admin split:</strong> secureblue recommends creating a dedicated admin account for privilege escalation while keeping your primary user account unprivileged. This means your primary user will <strong>not</strong> be in the <code>wheel</code>, <code>adm</code>, or <code>systemd-journal</code> groups. As a result, <code>journalctl -u audit-review.service</code> will show "No entries" or permission denied from your primary account. This is by design. The guide below provides three options for reading daily review output that respect this model.
+    <strong>CRITICAL: secureblue user/admin split:</strong> secureblue recommends creating a dedicated admin account for privilege escalation while keeping your primary user account unprivileged. This means your primary user will <strong>not</strong> be in the <code>wheel</code>, <code>adm</code>, or <code>systemd-journal</code> groups. As a result, <code>journalctl -u audit-review.service</code> will show "No entries" from your primary account. Additionally, <code>run0 -u admin journalctl</code> and <code>run0 journalctl</code> both fail to display oneshot service output properly on secureblue. The only reliable method is file-based output. The guide below configures this by default.
 </div>
 
 <div class="note">
@@ -866,65 +867,30 @@ Description=Daily audit review
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/audit-review
-StandardOutput=journal
+StandardOutput=append:/var/log/audit-review.log
 EOF
+
+# Create the log file with restricted permissions (root:admin, 640)
+run0 /usr/bin/touch /var/log/audit-review.log
+run0 /usr/bin/chown root:admin /var/log/audit-review.log
+run0 /usr/bin/chmod 640 /var/log/audit-review.log
 
 systemctl daemon-reload
 systemctl enable --now audit-review.timer</code></pre>
 
 <h3>Reading the daily review logs</h3>
 
-<p>secureblue's user/admin split means your primary user cannot read system journals. Choose based on your security/convenience preference.</p>
+<p>On secureblue, journalctl does not reliably display oneshot service output for unprivileged users or via <code>run0</code>. The service is configured to write to a file instead.</p>
 
-<h4>Option A: Admin account + journalctl (recommended)</h4>
+<pre><code># Read the daily review (prompts for admin password via polkit)
+run0 cat /var/log/audit-review.log
 
-<p>Log out of your primary user and log in as your admin account, then read the journal. This is secureblue's intended model: the HIDS output stays behind the privilege boundary.</p>
+# Check when it was last written
+run0 stat /var/log/audit-review.log</code></pre>
 
-<pre><code># From the admin account
-run0 -u admin journalctl -u audit-review.service -n 200
-
-# Or since last boot
-run0 -u admin journalctl -u audit-review.service -b</code></pre>
-
-<h4>Option B: run0 journalctl (practical compromise)</h4>
-
-<p>Use <code>run0</code> to read the journal from your primary user. This prompts for the admin password each time but requires no configuration changes and keeps output inside the journal.</p>
-
-<pre><code># Read from primary user account (will prompt for admin password)
-run0 journalctl -u audit-review.service -n 200
-
-# Or since last boot
-run0 journalctl -u audit-review.service -b</code></pre>
-
-<h4>Option C: File-based output (convenience trade-off)</h4>
-
-<div class="critical">
-    <strong>WARNING:</strong> This option makes your daily review output world-readable. A compromised unprivileged process can see your HIDS baseline, active rule count, and whether any alerts fired. This is a real security degradation. Only use this if you fully accept that trade-off for daily convenience.
+<div class="note">
+    <strong>Security note:</strong> The log file is owned by <code>root:admin</code> with <code>640</code> permissions. Only root and the admin account can read it. Your primary user cannot. This preserves the privilege boundary while ensuring the output is actually accessible.
 </div>
-
-<p>Reconfigure the service to append output to a file in <code>/var/log</code> with broad read permissions:</p>
-
-<pre><code># Reconfigure the service to write to a file
-run0 /usr/bin/tee /etc/systemd/system/audit-review.service << 'EOF'
-[Unit]
-Description=Daily audit review
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/audit-review
-StandardOutput=append:/var/log/audit-review.log
-EOF
-
-# Create the log file with read permissions for all users
-run0 /usr/bin/touch /var/log/audit-review.log
-run0 /usr/bin/chmod 644 /var/log/audit-review.log
-
-# Reload and restart
-systemctl daemon-reload
-systemctl restart audit-review.service
-
-# Now your primary user can read it directly
-cat /var/log/audit-review.log</code></pre>
 
 <h2>Phase 6: Verification</h2>
 
@@ -965,8 +931,8 @@ run0 /usr/bin/ls -la /var/lib/aide/aide.db.gz
 # Note: This runs the script directly, not via systemd, so it prints to your terminal
 run0 /usr/local/bin/audit-review
 
-# To see the systemd service output from the journal, use one of the methods in Phase 5
-# (admin account, file-based output, or run0 journalctl)
+# To see the systemd service output, read the log file:
+# run0 cat /var/log/audit-review.log
 
 # Example output from my machine (clean system):
 # === AUDIT SUMMARY ===
@@ -1087,6 +1053,14 @@ run0 mv ~/audit-review.tmp /usr/local/bin/audit-review
 run0 chmod +x /usr/local/bin/audit-review
 run0 head -n 5 /usr/local/bin/audit-review</code></pre>
 Then verify the first few lines look correct before proceeding.</div>
+
+<h3>journalctl shows "No entries" for audit-review.service</h3>
+
+<div class="symptom"><strong>Symptom:</strong> <code>journalctl -u audit-review.service</code> returns blank even though <code>systemctl status audit-review.service</code> shows the service exited successfully.</div>
+
+<div class="cause"><strong>Cause:</strong> On secureblue, oneshot service stdout is not reliably captured by journald for unprivileged users. <code>run0 journalctl</code> and <code>run0 -u admin journalctl</code> both fail to display the output due to pseudo-tty allocation issues.</div>
+
+<div class="fix"><strong>Fix:</strong> The guide configures <code>StandardOutput=append:/var/log/audit-review.log</code> by default. Read the file directly with <code>run0 cat /var/log/audit-review.log</code>. Do not rely on journalctl for oneshot service output on secureblue.</div>
 
 <h3>Closing thoughts</h3>
 
