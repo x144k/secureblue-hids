@@ -1,0 +1,13 @@
+name: "CodeQL Security Config"
+
+# HTML landing page (secureblue-hids, secureblue-backup).
+languages: html
+
+paths:
+  - .
+
+exclude_paths:
+  - "**/*.md"
+  - "**/*.png"
+  - "**/*.webp"
+  - "**/images/**"
