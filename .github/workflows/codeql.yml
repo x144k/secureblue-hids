@@ -29,7 +29,7 @@ jobs:
         with:
           languages: html
           config-file: .github/codeql-config.yml
-          build-mode: manual
+          build-mode: auto
 
       - name: Analyze
         uses: github/codeql-action/analyze@v3
